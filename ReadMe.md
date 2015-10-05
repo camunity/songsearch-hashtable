@@ -16,6 +16,13 @@ songsearch.cpp
 
 songsearch.h
 
+word.h
+
+read_lyrics.cpp
+
+hash_func.cpp
+
+main.cpp
 ReadMe.md
 
 To compile:
