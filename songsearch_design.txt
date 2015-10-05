@@ -1,0 +1,23 @@
+Song Search Design Overview:
+Cameron Flowers
+
+An overview of my intended implementation is as follows: I want to implement
+a hashtable containing word structs, which contain a word and a vector of 
+wordfreq structs (each containing a pointer to a song and a frequency of appe-
+arance of the word). Then the song struct contains a title, artist, and a
+vector of lyrics. Using the hashtable I will be able to easily search for
+the user selected string and find songs that match this particular lyric.
+The hashtable search will make look-up time constant, and then by looking at
+the wordfreq array I can easily determine the top 10 count of songs and the
+necessary contexts of the lyric contained in the lyrics vector. 
+
+I believe that this design makes sense given the ability to store and search
+hash table elements quickly, and the use of the word, wordfreq, and song
+structures will give me the ability to interact at these three levels of 
+analysis and find the song title, artist and context quickly.
+The use of a hashtable containing word structs themselves containing a wordfreq
+array will make keeping track of multiple instances of a word across lyric and
+song, easy to take care of.
+
+I was given approval and assistance by TA Jackson Burzynski and have spoken
+with other COMP40 Students and TA's. 

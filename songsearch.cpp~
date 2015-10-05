@@ -1,0 +1,315 @@
+/*
+* songsearch.cpp
+* by Cameron Flowers
+* Comp15 12/7/2014
+*/
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <vector>
+#include <string>
+#include "hashfunc.h"
+#include "songsearch.h"
+
+/*
+        Constructor for WordTable
+*/
+WordTable::WordTable(){
+	table = new wordNode* [INIT_CAPACITY]; //new table
+	tableSize = INIT_CAPACITY; 
+	for (size_t i = 0; i < tableSize; i++){
+		table[i] = NULL; //initialize at NULL
+	}
+	numWords = 0;
+}
+
+/*
+        Destructor for WordTable
+*/
+WordTable::~WordTable(){
+	for (size_t i = 0; i < tableSize; i++){
+		if (table[i]!=NULL){
+			delete table[i]; //delete each wordNode
+			table[i] = NULL;
+		}
+	}
+	for (size_t i = 0; i < songList.size(); i++){
+		delete songList[i]; //deletes each song
+	}
+	delete [] table;
+}
+
+/*
+        read_lyics 
+        ~ read in song data from a disk file 
+        ~ calls a function each time a word is found
+*/
+void WordTable::read_lyrics(const char * filename, bool show_progress){
+        ifstream in(filename);			// creates an input stream
+        int song_count = 0;			// for progress indicator
+		string artist, title, word;	// data from the file
+
+	// -- While more data to read...
+	while ( ! in.eof() ) 
+	{
+		Song* song = new Song; //create a new song
+		// -- First line is the artist
+		getline(in, song->artist);
+		if (in.fail()) break;
+
+		// -- Second line is the title
+		getline(in, song->title);
+		if (in.fail()) break;
+
+		if ( show_progress )
+		{
+			song_count++;
+			if (song_count % 10000 == 0) {
+				cout << "At "       << song_count << 
+					" Artist: " << song->artist << 
+					" Title:"   << song->title << endl;
+			}
+		}
+	
+		while ( in >> word && word != "<BREAK>" ){
+		  song->lyrics.push_back(word); //adds words to lyrics vector
+		}
+		analyzeSong(song); //handles lyrics
+				   //and starts implementing the hashtable
+		CheckTopTen(song); //see if word in song is 11th occurance  
+			 //compare frequencies and add to table if necessary
+		
+		// -- Important: skip the newline left behind
+		in.ignore();
+	}
+}
+
+/*
+        analyzeSong
+        ~ Processes song lyrics into the hash table:
+*/
+void WordTable::analyzeSong(Song* song){
+	for (size_t i = 0; i < song->lyrics.size(); i++){		
+		if (load_factor() > LOADMAX) expand(); //expand if necessary
+		uint32_t hash = hashWord(alphaOnly(song->lyrics[i]));
+		if (table[hash] == NULL){ //if word doesn't exist in table
+			//make new wordNode 
+			wordNode *node = new wordNode;
+			node->word = alphaOnly(song->lyrics[i]);
+			//first songs_and_freqs index initialized
+			node->songs_and_freqs[0].song = song;
+			node->songs_and_freqs[0].freq = 1;
+			node->numSongs=1;
+			table[hash] = node;
+			numWords++;
+		}
+		else duplicateWord(hash, song); //word is in table already
+	}
+}
+
+/*
+        duplicateWord 
+        ~ Processes words that already exist in the hash table
+*/
+void WordTable::duplicateWord(uint32_t hash, Song* song){
+	wordNode* node = table[hash];
+	//checks if this instance exists within the same song 
+	if (node->songs_and_freqs[node->numSongs-1].song == song){
+		node->songs_and_freqs[node->numSongs-1].freq++;
+		//just augment the freq
+	}
+	// instance of a previously hashed word in a new song
+	else{ //add node to songs_and_freqs array
+		node->songs_and_freqs[node->numSongs].song = song;
+		node->songs_and_freqs[node->numSongs].freq = 1;
+		node->numSongs++;
+	}
+}
+
+/*
+        CheckTopTen
+        ~ This function goes through the lyrics of the song to see if 
+        ~ the current song's frequency of a word should be stored in the top 10 
+
+*/
+void WordTable::CheckTopTen(Song* song){
+	for (size_t i = 0; i < song->lyrics.size(); i++){
+		uint32_t hash = hashWord(alphaOnly(song->lyrics[i]));
+		wordNode* node = table[hash];
+		if (node->numSongs == 11){ //if top 10 songs + current song
+			//currSong = the current song's info (song + word)
+			SongFreq curr = node->songs_and_freqs[node->numSongs-1];
+			for (size_t j = 0; j < node->numSongs; j++){
+				//find song with minimum frequency of word
+				size_t minIndex = j;
+				SongFreq minSong = node->songs_and_freqs[j];
+				for (size_t k = 0; k < node->numSongs; k++){
+					if (node->songs_and_freqs[k].freq < 
+					minSong.freq){
+					minIndex = k;
+					minSong = node->songs_and_freqs[k];
+					}
+				}
+				if (minSong.freq < curr.freq){ //swap if needed
+					node->songs_and_freqs[minIndex] = curr;
+					break;
+				}
+			}
+			node->numSongs--;
+		}
+	}
+}
+
+/*
+        hashWord 
+        ~ Takes an alphaOnly word and hashes it, modding by the tableSize 
+        ~ Uses linear probing to deal with collisions
+
+*/
+uint32_t WordTable::hashWord(string word){
+	uint32_t hash = hash_string(word) % tableSize;
+	while(table[hash]!=NULL){
+	    if(table[hash]->word == word){
+		return hash;
+		}
+	    else{
+		 hash = (hash + 1) % tableSize; //linear probe and modulus wrap
+		}
+	}
+	return hash; 
+}
+
+/*
+        search
+        ~ Takes in a word, hashes it to find the word in the hash table 
+        ~ Creates a descending list of the songs_and_freqs array for that word.
+
+*/
+void WordTable::search(){
+	string word;
+	//cout << "Put Word " << endl;
+	cin >> word;
+	uint32_t hash = hashWord(alphaOnly(word));
+	
+	if (table[hash]!= NULL) {
+		wordNode* node = table[hash];
+		
+		Sort(node);
+		
+		//songs_and_freqs array now in descending order
+		//calls printContext 
+		for (size_t i = 0; i < node->numSongs; i++){
+		  printContext(node->songs_and_freqs[i].song, node->word);
+		}
+	}
+	
+	cout << "<END OF REPORT>" << endl;
+}
+
+/* 
+        Sort
+        ~ Sorts the top10 songs_and_freqs for the searched word into descending order. 
+        ~ Performs a selection sort 
+
+*/
+void WordTable::Sort(wordNode* node){
+	//performs a max Selection Sort creating a sorted array
+	//in descending order from highest to lowest frequency
+	for (size_t i = 0; i < node->numSongs; i++){
+		
+		SongFreq max = node->songs_and_freqs[i]; //set max 
+		size_t maxIndex = i; //set index
+		
+		for (size_t j = i+1; j < node->numSongs; j++){
+
+		  if (node->songs_and_freqs[j].freq > //compare for swap
+			node->songs_and_freqs[maxIndex].freq){
+				max = node->songs_and_freqs[j]; //swap
+				maxIndex = j;
+			}
+		}
+		node->songs_and_freqs[maxIndex] = node->songs_and_freqs[i];
+		node->songs_and_freqs[i] = max; //update array
+	}
+}
+
+/*      
+        printContext
+        ~ prints the five words before and the five words after the
+        ~ searched word for each song. 
+*/
+void WordTable::printContext(Song* song, string word){
+	for (size_t i = 0; i < song->lyrics.size(); i++){
+		if(alphaOnly(song->lyrics[i]) == word){
+			size_t j;
+			//Check if word is in the first 5 words in the song
+			if (i < 5) j = 0; //if i is in the first 5 words
+					 // start at index 0
+			else j = i - 5; //otherwise start 5 words 
+				       //before our word
+			cout << "Title: " << song->title << endl;
+			cout << "Artist: " << song->artist << endl;
+			cout << "Context: ";
+			while (j < i+6){
+				if (j >= song->lyrics.size()) break;
+				cout << song->lyrics[j] << " ";
+				j++;
+			}
+			cout << endl << endl;
+		}
+	}
+}
+
+/*      
+        expand
+        ~ enlarges the hash table and calls analyze Word to rehash each word
+*/
+void WordTable::expand(){
+	wordNode** newTable = new wordNode* [2*tableSize]; //make 2x larger
+	for (size_t i = 0; i < 2*tableSize; i++){
+		newTable[i] = NULL; //initialize indexes to NULL
+	}
+	wordNode** oldTable = table;  //temp
+	table = newTable; //swap
+	tableSize*=2; //update sizes
+	for (size_t i = 0; i < tableSize/2; i++){
+		if(oldTable[i]!=NULL){
+			analyzeWord(oldTable[i]); //rehash the old in new table
+		}
+	}
+	delete [] oldTable;
+}
+
+/* 
+        analyzeWord
+        ~ Takes wordNodes from the oldTable and rehashes them
+*/
+void WordTable::analyzeWord(wordNode* wordNode){
+	uint32_t hash = hashWord(wordNode->word);
+	table[hash] = wordNode;
+}
+
+/*
+        load_factor
+        ~ Returns number of entries divided by number of hash buckets
+*/
+double WordTable::load_factor(){
+	return (double)numWords / (double)tableSize;
+}
+
+
+/* 
+        alphaOnly
+        ~ strips off non-alphabetic and non-digit characters
+        ~ and returns a string with just the alphas and digits
+*/
+string WordTable::alphaOnly(string s){
+        //cerr << "string:"<< s << endl;
+        ostringstream ss;
+        for (size_t i=0;i<s.length();i++) {
+                if (isalnum(s[i])){
+                        ss << (char)(tolower(s[i]));
+                }
+        }
+        return ss.str();
+}
